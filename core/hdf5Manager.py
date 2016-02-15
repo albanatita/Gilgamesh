@@ -4,9 +4,11 @@ Created on Mon Oct 05 14:14:56 2015
 
 @author: admin
 """
+import sys
+sys.path.append(r'C:\ISHTAR\\')
 import h5py
 import os,os.path
-import environmentGilga as env
+import gilgamesh.environmentGilga as env
 import pandas as pd
 import numpy as np
 
@@ -76,6 +78,23 @@ def listAttrs(shotnbr,attrpaths):
     return liste
     hdf5.close()
 
+def saveData(shotnbr,item,data):
+    file=getFilefromNbr([shotnbr])
+    if os.path.isfile(os.path.join(env.H5path,file[0])):
+        hdf5=h5py.File(os.path.join(env.H5path,file[0]),'a')
+        e = '/Process'
+        if e in hdf5:
+            group=hdf5[e]
+        else:
+            group=hdf5.create_group(e)
+        if e+'/'+item in hdf5:
+            hdf5.__delitem__(e+'/'+item)
+        group.create_dataset(item,data=data)
+        hdf5.close()
+        return 1
+    else:
+        return 0    
+
 def readData(shotnbr,item):
     file=getFilefromNbr([shotnbr])
     hdf5=h5py.File(os.path.join(env.H5path,file[0]),'r')
@@ -93,7 +112,12 @@ def readData(shotnbr,item):
         time=np.linspace(0,len(data)-1,num=len(data))/(sampling)
     hdf5.close()
     return pd.DataFrame(data,index=time)
-        
+       
+def isData(shotnbr,item):
+    file=getFilefromNbr([shotnbr])
+    hdf5=h5py.File(os.path.join(env.H5path,file[0]),'r')
+    e = item in hdf5
+    return e
     
 
     

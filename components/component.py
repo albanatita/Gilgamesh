@@ -5,9 +5,21 @@ Created on Fri Nov 27 11:11:02 2015
 @author: admin
 """
 import shelve
-import environment as env
-import shotManager as sm
+import gilgamesh.core.wrapper as wrapper
+import gilgamesh.environmentGilga as env
+import gilgamesh.core.shotManager as shotManager
 import numpy as np
+import gilgamesh.core.hdf5Manager as h5m
+import pickle
+#import seaborn as sns
+import pandas as pd
+from scipy.signal import argrelextrema
+import matplotlib.pyplot as plt
+import math
+import seaborn as sns
+
+
+sm=shotManager.ShotManager(wrapper.signalWrapper)
 
 class Component(object):
     def __init__(self,name):
@@ -19,11 +31,8 @@ class Component(object):
         
 class Diagnostics(Component):
     def __init__(self,name):
-        self.signals=[]
         Component.__init__(self,name)
         
-    def connectSignal(self,signalName):
-        self.signals=signalName
     
 class LangmuirProbe(Component):
      def __init__(self,name,typ,surface,position,Usignal,Isignal):
@@ -33,65 +42,135 @@ class LangmuirProbe(Component):
         self.Usignal=Usignal
         self.Isignal=Isignal
         Component.__init__(self,name)
-        
-     def getIV(self,shot,time,param={ramp:20,typ:'up',sweep:1e3}):
-     	 Udataslice=sm.getSignal(shot,self.Usignal,criterion='index>'+str(time)+'&index<'+str(time+1/sweep*(ramp+1)))
-     	 Idataslice=sm.getSignal(shot,self.Isignal,criterion='index>'+str(time)+'&index<'+str(time+1/sweep*(ramp+1)))
-     	 maxi=argrelextrema(Udataslice, np.greater,order=ramp)
-     	 mini=argrelextrema(Udataslice, np.less,order=ramp)
-     	 indx=np.sort(np.hstack((maxi,mini)))[0]
-     	 temp=np.split(Udataslice,indx)
-     	 Udatadown=np.concatenate(temp[::2])
-     	 Idatadown=np.concatenate(np.split(Idataslice,indx)[::2])
-     	 idxsorted=np.argsort(Udatadown)
-     	 Udatadown=Udatadown[idxsorted]
-     	 Idatadown=Idatadown[idxsorted]   
-     	 Udatadown=self.movingaverage(Udatadown,100) #check to modify here
-     	 Udatauniq=np.unique(Udatadown)
-     	 Idatauniq=np.zeros(len(self.Udatauniq))
-     	 i=0
-     	 while i<len(self.Udatauniq):
-     	 	 self.Idatauniq[i]=np.mean(Idatadown[Udatadown==self.Udatauniq[i]])
-             i=i+1
-         self.Idatauniq=self.movingaverage(self.Idatauniq,100)
-         return Udatauniq,Idatauniq # should actually return a dataframe
      
-    def Vfloat(IV):
+     def calculateTime(self,shot,start,stop):
+         step=0.1
+         #nb=int(duration/step)
+         timearray=np.arange(start,stop,step)
+         liste=[]
+         UI=sm.readSignal([shot],[self.Usignal,self.Isignal]).xs(shot)
+         for x in timearray:
+             print x
+             liste.append(self.calculatePlasma(shot,x,UI))
+         result=np.vstack(liste)
+         return pd.DataFrame(result,columns=['time','Vfloat','n','T','Vplasma'])
+      
+     def calculateSingle(self,shot,time,show=False):
+         UI=sm.readSignal([shot],[self.Usignal,self.Isignal]).xs(shot)
+         return self.calculatePlasma(shot,time,UI,show=show)
      
-    def currentCorrection(IV):
-    	indexsat=np.where(Idatauniq<=0)[0][-1]
-        Vfloat=Udatauniq[indexsat]
-        deltarange=(Vfloat-Udatauniq[0])
-        rangea=[Vfloat-deltarange/2,Vfloat-deltarange/4]
-        Ufit=
-        Ifit=
-    	fit = np.polyfit(Ufit,Ifit,1)
+     def calculatePlasma(self,shot,time,UI,show=False,param={'ramp':10,'typ':'down','sweep':1e3,'backgnd':False,'process':'smooth'}):
+         try:         
+             IV=self.getrawIV(shot,time,UI,param=param)
+             #axi=IV.plot(x='U',y='I',kind='scatter')
+             if show:
+                 fig=plt.figure()
+                 #ax=fig.add_subplot(211)
+                 plt.scatter(IV.U,IV.I)
+             result2,result=self.getIVsmooth(IV,dev=True)
+             if show:
+                 pass
+                 #plt.plot(result)
+                 #plt.plot(result+result2)
+                 #plt.plot(result-result2)
+                 #print IV.groupby('I').mean()
+                 #sns.tsplot(IV.grouby('I').mean()['U'].values,IV.grouby('I').mean().index.values,ax=ax)
+             #result.plot(ax=axi)
+             Isat, Vfloat, result2=self.currentCorrection(result)
+             if show:
+                 pass
+                 #plt.plot(result2)
+             #print 'Isat',Isat
+             if math.isnan(Isat):
+                 print 'current too small'
+                 return [time,np.nan,np.nan,np.nan,np.nan]
+             #result2.plot(ax=axi)
+             Vplasma,T=self.T(result2,Vfloat)
+             #print Vplasma,T
+             n=self.n(Isat,T,shot)
+             print  n
+             return [time,Vfloat,n,T,Vplasma]
+         except:
+             return [time,np.nan,np.nan,np.nan,np.nan]
+     	 
+     def getrawIV(self,shot,time,UI,param={'ramp':20,'typ':'down','sweep':1e3,'backgnd':False,'process':'smooth'}):
+         ramp=param['ramp']
+         typ=param['typ']
+         sweep=param['sweep']
+         query='index>'+str(time)+'&index<'+str(time+1/sweep*(ramp+1))
+         #print query
+         UIdataslice=UI.query(query)
+         #print UIdataslice
+         Udataslice=UIdataslice[self.Usignal].values        
+         Idataslice=UIdataslice[self.Isignal].values
+         if typ=='down':         
+             maxi=argrelextrema(Udataslice, np.greater,order=ramp)
+             mini=argrelextrema(Udataslice, np.less,order=ramp)
+             indx=np.sort(np.hstack((maxi,mini)))[0]
+             temp=np.split(Udataslice,indx)
+             Udatadown=np.concatenate(temp[::2])
+             Idatadown=np.concatenate(np.split(Idataslice,indx)[::2])
+         if typ=='all':
+             Udatadown=Udataslice
+             Idatadown=Idataslice
+         return pd.DataFrame({'U':Udatadown,'I':Idatadown}).sort_values('I')
+     
+     def getIVsmooth(self,UI,dev=False):
+         res1=UI.groupby(['U']).mean()
+         result=pd.rolling_mean(res1,10)
+         if dev:
+             result2=pd.rolling_std(res1,10)
+             return result2,result
+         else:
+             return result
+     
+     
+     def currentCorrection(self,IVsmooth):
+        Vfloat=max(IVsmooth[IVsmooth.I<=0].index.values)
+        #print 'Vfloat : '+str(Vfloat)
+        deltarangeini=IVsmooth.index.values[0]+10
+        dataI=IVsmooth[deltarangeini:Vfloat-10].I.values
+        dataV=IVsmooth[deltarangeini:Vfloat-10].index.values
+        fit = np.polyfit(dataV,dataI,1)
         fit_fn = np.poly1d(fit)
-        Ifitcorr=np.subtract(Idatauniq,fit_fn(Udatauniq))
-        Isat=fit_fn(Udatauniq)[indexsat]
+        Ifitcorr=np.subtract(IVsmooth.I.values,fit_fn(IVsmooth.index.values))
+        Isat=fit_fn(Vfloat)
+
+        if fit_fn(20)>=0:
+            Isat=np.nan
+            Vfloat=np.nan
+        return Isat,Vfloat,pd.DataFrame({'I':Ifitcorr},index=IVsmooth.index.values)
         
-    def T(IV):
-    	diffI=np.diff(self.movingaverage(Ifitcorr[indexsat:-10],30))
-		diffU=np.diff(Udatauniq[indexsat:-10])
-		idxmax=np.argmax(diffI/diffU)
-		Vplasma=(Udatauniq[indexsat:-10])[idxmax-1]
-		Vdelta=Vplasma-Vfloat
-		rangea=[Vfloat+Vdelta/4,Vfloat+Vdelta/2]
-		Ufit=Udatauniq[(Udatauniq>=rangea[0])&(Udatauniq<=rangea[1])]
-		Ilogfit=np.log(Ifitcorr[(Udatauniq>=rangea[0])&(Udatauniq<=rangea[1])])
-		fit = np.polyfit(Ufit,Ilogfit,1)
-		fit_fn = np.poly1d(fit)
-		T=1/fit[0]
+     def T(self,IVcorr,Vfloat):
+        diffI=np.diff(IVcorr[Vfloat:].I.values)
+        diffU=np.diff(IVcorr[Vfloat:].index.values)
+        idxmax=np.argmax(diffI/diffU)
+        Vplasma=(IVcorr[Vfloat:].index.values)[idxmax-1]
+        Vdelta=Vplasma-Vfloat
+        #rangea=[Vfloat+Vdelta/4,Vfloat+Vdelta/2]
+        rangea=[Vfloat,Vfloat+Vdelta/2]
+        IVfit=IVcorr[rangea[0]:rangea[1]]
+        Ufit=IVfit.index.values
+        Ilogfit=np.log(IVfit.I.values)
+        fit = np.polyfit(Ufit,Ilogfit,1)
+        #plt.figure()
+        #IVfit.plot()
+#        fit_fn = np.poly1d(fit)
+        T=1/fit[0]
+        return Vplasma,T
 		
-	def n(IV):
-		e_electron=1.6022e-19
-		if self.gas.text()=='Argon':
-			Mi = 40*1.6726e-27
-		if self.gas.text()=='Helium': 
-			Mi = 4*1.6726e-27
-		k_b = 1.3807e-23
-		area=2*np.pi*1e-3*10e-3+np.pi*(1e-3)**2            
-		dens = -Isat * np.sqrt(Mi)/(0.6 * e_electron * area * np.sqrt(k_b*T*11604))
+     def n(self,Isat,T,shot):
+          e_electron=1.6022e-19
+          gas=sm.getAttr(shot,'Gas')
+          #print gas
+          if gas=='Argon':
+              Mi = 40*1.6726e-27
+          if gas=='Helium': 
+              Mi = 4*1.6726e-27
+          k_b = 1.3807e-23
+          area=2*np.pi*1e-3*10e-3+np.pi*(1e-3)**2            
+          dens = -Isat * np.sqrt(Mi)/(0.6 * e_electron * area * np.sqrt(k_b*T*11604))
+          return dens
 
 class Testbed(Component):
     def __init__(self,name):
@@ -112,8 +191,26 @@ def load(version):
     filename=env.DBpath+'ComponentStore'
     d = shelve.open(filename)  
     return d[version]
-            
-def attachShot(version):
-	
+
+def initComponentDB():
+	defaultcomponent='empty'
+	liste=h5m.getNbrfromFile(h5m.listFiles())
+	DB=dict()
+	for x in liste:
+		DB[x]=defaultcomponent
+	pickle.dump( DB, open( env.DBpath+"ComponentDB.bin", "wb" ) )
+
+def attachShot(version,shotList):
+    DB=pickle.load( open( env.DBpath+"ComponentDB.bin", "rb" ) )
+    for x in shotList:
+    	DB[x]=version
+    pickle.dump( DB, open( env.DBpath+"ComponentDB.bin", "wb" ) )
+
+def componentShot():
+	DB=pickle.load( open( env.DBpath+"ComponentDB.bin", "rb" ) )
+	print DB
+
 def loadFromShot(shot):
-	
+	DB=pickle.load( open( env.DBpath+"ComponentDB.bin", "rb" ) )
+	version=DB[shot]
+	return load(version)
