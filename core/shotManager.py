@@ -12,6 +12,7 @@ import gilgamesh.environmentGilga as env
 import gilgamesh.core.hdf5Manager as h5
 import gilgamesh.core.wrapper
 
+
 class ShotManager():
 
     def __init__(self,wrap):
@@ -34,30 +35,35 @@ class ShotManager():
         return liste
 
     def readSignal(self,shots,signals,criterion=None,sampling=None):
-            results=dict()
-            for y in shots:
-                print y
-                data=[]
-                for x in signals:
-                    try:
-                        data.append(self.wrapper.wrapSignal(y,x))
-                    except Exception,e:
-                        print 'does not exist: ',e
-                        signals.remove(x)    
-                result=pd.concat(data,axis=1)
-                result.fillna(method='ffill',inplace=True)
-                result.columns=signals
-                if criterion != None:
-                    #print result
-                    result=result.query(criterion)
-                if sampling != None:
-                	result.resample(sampling)
+        """
+        read a list of signals for given shots
+        
+        """
+        results=dict()
+        for y in shots:
+            print y
+            data=[]
+            for x in signals:
+                print x
+                try:
+                    data.append(self.wrapper.wrapSignal(y,x))
+                except Exception,e:
+                    print 'does not exist: ',e
+                    signals.remove(x)    
+            result=pd.concat(data,axis=1)
+            result.fillna(method='ffill',inplace=True)
+            result.columns=signals
+            if criterion != None:
+                #print result
+                result=result.query(criterion)
+            if sampling != None:
+            	result.resample(sampling)
+            results[y]=result
+        result=pd.concat(results,axis=0,keys=shots)
 
-                results[y]=result
-            result=pd.concat(results,axis=0,keys=shots)
-            result.index.names=['Shot','Time']
-            
-            return result
+        result.index.names=['Shot','Time']
+        
+        return result
 
     def reduceSignal(self,shots,signals,operation):
         ind=[]
@@ -123,5 +129,8 @@ class ShotManager():
          #df.convert_objects()
          df.to_hdf(self.store,'shotDB',format='table',nan_rep='nan',data_columns=True)
                
-      
-    
+
+        
+        
+
+

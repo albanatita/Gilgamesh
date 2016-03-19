@@ -17,6 +17,7 @@ from scipy.signal import argrelextrema
 import matplotlib.pyplot as plt
 import math
 import seaborn as sns
+import pyqtgraph as pg
 
 
 sm=shotManager.ShotManager(wrapper.signalWrapper)
@@ -29,50 +30,71 @@ class Component(object):
     def add_child(self, obj):
         self.children.append(obj)
         
+    def getData(self):
+        pass
+    
+    def findElement(self,liste,typeel):
+        if self.children==[]:
+            return liste
+        else:
+            for x in self.children:
+                if isinstance(x,typeel):
+                    liste.append(x)
+                x.findElement(liste,typeel)
+            return liste
+            
+        
+        
 class Diagnostics(Component):
     def __init__(self,name):
         Component.__init__(self,name)
         
     
 class LangmuirProbe(Component):
-     def __init__(self,name,typ,surface,position,Usignal,Isignal):
+     def __init__(self,name,typ,surface,position):
         self.type=typ
         self.surface=surface
         self.position=position
-        self.Usignal=Usignal
-        self.Isignal=Isignal
         Component.__init__(self,name)
      
-     def calculateTime(self,shot,start,stop):
+     def getData(self)     :
+        return {'Type':self.type,'Surface':self.surface,'Position':self.position,'Voltage':self.Usignal,'Current':self.Isignal}
+     
+     def getUI(self,shot):
+         return sm.readSignal([shot],[self.Usignal,self.Isignal]).xs(shot)
+     
+     def calculateTime(self,shot,start,stop,UI=None):
          step=0.1
          #nb=int(duration/step)
          timearray=np.arange(start,stop,step)
          liste=[]
-         UI=sm.readSignal([shot],[self.Usignal,self.Isignal]).xs(shot)
+         if UI==None:
+             UI=sm.readSignal([shot],[self.Usignal,self.Isignal]).xs(shot)
          for x in timearray:
              print x
              liste.append(self.calculatePlasma(shot,x,UI))
          result=np.vstack(liste)
          return pd.DataFrame(result,columns=['time','Vfloat','n','T','Vplasma'])
       
-     def calculateSingle(self,shot,time,show=False):
+     def calculateSingle(self,shot,time,show=False,showData=None,param={'ramp':10,'typ':'down','sweep':1e3,'backgnd':False,'process':'smooth'}):
          UI=sm.readSignal([shot],[self.Usignal,self.Isignal]).xs(shot)
-         return self.calculatePlasma(shot,time,UI,show=show)
+         return self.calculatePlasma(shot,time,UI,show=show,showData=showData,param=param)
      
-     def calculatePlasma(self,shot,time,UI,show=False,param={'ramp':10,'typ':'down','sweep':1e3,'backgnd':False,'process':'smooth'}):
-         try:         
+     def calculatePlasma(self,shot,time,UI,show=False,showData=None,param={'ramp':10,'typ':'down','sweep':1e3,'backgnd':False,'process':'smooth'}):
+#         try:         
              IV=self.getrawIV(shot,time,UI,param=param)
              #axi=IV.plot(x='U',y='I',kind='scatter')
              if show:
-                 fig=plt.figure()
+                 pl1=showData[0]
+                 pl1.clear()
+                 pl1.plot(IV.U.values,IV.I.values,pen=None,symbol='o',symbolSize=1)
+                 #pl.draw()
                  #ax=fig.add_subplot(211)
-                 plt.scatter(IV.U,IV.I)
-             result2,result=self.getIVsmooth(IV,dev=True)
+                 #plt.scatter(IV.U,IV.I)
+             result=self.getIVsmooth(IV)
              if show:
-                 pass
-                 #plt.plot(result)
-                 #plt.plot(result+result2)
-                 #plt.plot(result-result2)
+                 pl1.plot(result.index.values,result['I'].values,pen=(0,255,0))
+                 #pl1.plot(result+result2,pen=(255,0,0))
                  #print IV.groupby('I').mean()
                  #sns.tsplot(IV.grouby('I').mean()['U'].values,IV.grouby('I').mean().index.values,ax=ax)
              #result.plot(ax=axi)
@@ -90,15 +112,16 @@ class LangmuirProbe(Component):
              n=self.n(Isat,T,shot)
              print  n
              return [time,Vfloat,n,T,Vplasma]
-         except:
-             return [time,np.nan,np.nan,np.nan,np.nan]
+#         except Exception,e:
+#             print e
+#             return [time,np.nan,np.nan,np.nan,np.nan]
      	 
      def getrawIV(self,shot,time,UI,param={'ramp':20,'typ':'down','sweep':1e3,'backgnd':False,'process':'smooth'}):
          ramp=param['ramp']
          typ=param['typ']
          sweep=param['sweep']
          query='index>'+str(time)+'&index<'+str(time+1/sweep*(ramp+1))
-         #print query
+
          UIdataslice=UI.query(query)
          #print UIdataslice
          Udataslice=UIdataslice[self.Usignal].values        
