@@ -40,7 +40,7 @@ def listProgram():
 
 def setUseful(shotList,value):
     for x in shotList:
-        sm.changeAttr(x,'Usefulk',value)
+        sm.changeAttr(x,'Useful',value)
 
 def maxIC(shotList):
     for x in shotList:

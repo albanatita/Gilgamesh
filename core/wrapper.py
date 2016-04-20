@@ -12,6 +12,7 @@ import pandas as pd
 import gilgamesh.environmentGilga as env
 import hdf5Manager as hm
 import gilgamesh.signalsProcess as signals
+import numpy as np
 
 def addCalib(row):
     """
@@ -40,8 +41,9 @@ class SignalWrapper():
             self.shotManager=sm
         
      def importSignalDB(self):
-        	signalTable=pd.read_csv(env.DBpath+'signals.csv',sep=';')
-        	signalTable.to_hdf(self.store,self.tableSignal,format='table',data_columns=True)
+        signalTable=pd.read_csv(env.DBpath+'signals.csv',sep=';')
+        signalTable.to_hdf(self.store,self.tableSignal,format='table',data_columns=True,append=False)
+        self.loadDB()
         	
      def exportSignalDB(self,name):
             signalTable=pd.read_hdf(self.store,self.tableSignal)
@@ -67,7 +69,33 @@ class SignalWrapper():
                 mapping[x]=pd.Series(signals.mapping(x,liste),index=mapping.index)
             mapping.to_hdf(self.store,self.tableMapping,format='table',data_columns=True)
             self.mapping=mapping   
-   		
+
+     def saveMappingtoCSV(self):
+         mapping=pd.read_hdf(self.store,self.tableMapping)
+         mapping.to_csv(env.DBpath+'mapping.csv',index=False)
+
+     def loadMappingfromCSV(self):
+        mapping=pd.read_csv(env.DBpath+'mapping.csv',sep=';',dtype=np.int32)
+        mapping.to_hdf(self.store,self.tableMapping,format='table',data_columns=True,append=False)
+        self.mapping=mapping
+#     def loadMappingFromCSV(self):
+#         
+    
+     def addShotMapping(self,shot):
+         presentconf=pd.read_csv(env.DBpath+'presentconf.csv',sep=';',header=None)
+         #presentconf=presentconf.set_index('Signal')
+         presentconf=presentconf.transpose()
+         headers=presentconf.iloc[0]
+         presentconf=presentconf[1:]
+         presentconf=presentconf.rename(columns = headers)
+         presentconf['Shotnbr']=shot
+         presentconf=presentconf.reset_index(drop=True)
+         presentconf=presentconf.convert_objects(convert_numeric=True)
+         
+         self.mapping=self.mapping.append(presentconf).reset_index(drop=True)
+         #pd.to_numeric(self.mapping,errors='coerce')
+         self.mapping.to_hdf(self.store,self.tableMapping,format='table',data_columns=True,append=False)
+
      
      def signalforShot(self,name,shot):
          """
@@ -88,6 +116,18 @@ class SignalWrapper():
                      listSignal.append(x[0])
          return listSignal
 
+     def attrPresent(self,shot):
+         """
+         Get all attributes existing for a given discharge
+         """
+         liste=self.getAttrList(detail='name').values
+         listSignal=[]
+         for x in liste:
+             path=self.getPath(x,shot)[0].values[0]
+             if path!='Calculate':
+                 if hm.isAttr(shot,path):
+                     listSignal.append(x[0])
+         return listSignal
         
      def getSignalList(self,detail=None):
         """

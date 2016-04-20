@@ -46,7 +46,8 @@ liste=s.index.values
 #================ end initialization
 
 sm=shotManager.ShotManager(wrapper.signalWrapper)
-sm.readSignal([1505],['Ngas_P'])
+wrapper.signalWrapper.saveMappingtoCSV()
+#sm.readSignal([1505],['Ngas_P'])
 
 #print sm.listShots()
 #print sm.listShots(criterion='Date.date==Timestamp("2015-01-10")')

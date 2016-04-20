@@ -77,8 +77,10 @@ def plot(data,gui=False):
     for x in data.columns:
         shotplot=[]
         for z in data.index.get_level_values('Shot').unique():
-            data.xs(z)[::size][x].plot(ax=axs[k],figsize=(6,8),legend=True)
-            #shotplot.append(axs[k])
+            ax1=data.xs(z)[::size][x].plot(ax=axs[k],figsize=(6,8),legend=True)
+            shotplot.append(z)
+        lines, labels = ax1.get_legend_handles_labels()
+        ax1.legend(lines, shotplot, loc='best')     
         #plt.legend(handles=shotplot)
         #plt.xlabel('Time')
         #sns.tsplot(time="Time", value=x, condition="Shot", data=data[::size],ax=axs[k])
@@ -136,7 +138,7 @@ def overview(shot,fig):
     return _overview(shot,fig)
 
 def view(shot):
-    fig=plt.figure()
+    fig=plt.figure(figsize=(8, 6))
     overview(shot,fig)
  
 class overviewWidget(HasTraits):

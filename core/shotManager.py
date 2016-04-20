@@ -11,6 +11,7 @@ import pandas as pd
 import gilgamesh.environmentGilga as env
 import gilgamesh.core.hdf5Manager as h5
 import gilgamesh.core.wrapper
+import numpy as np
 
 
 class ShotManager():
@@ -41,15 +42,18 @@ class ShotManager():
         """
         results=dict()
         for y in shots:
-            print y
+            #print y
             data=[]
+            listeremove=[]
             for x in signals:
-                print x
+               # print x
                 try:
                     data.append(self.wrapper.wrapSignal(y,x))
                 except Exception,e:
-                    print 'does not exist: ',e
-                    signals.remove(x)    
+                    #print x+' - does not exist: ',e
+                    listeremove.append(x)
+            for x in listeremove:
+                signals.remove(x)    
             result=pd.concat(data,axis=1)
             result.fillna(method='ffill',inplace=True)
             result.columns=signals
@@ -92,9 +96,10 @@ class ShotManager():
         try:
             if h5.setAttr(shot,self.wrapper.getPath([attrName],shot),value) ==1:
                 df=pd.read_hdf(self.store,'shotDB')
-                df[attrName][shot]=value
+                df.set_value(shot,attrName,value)
                 df.to_hdf(self.store,'shotDB',format='table',nan_rep='nan',data_columns=True)
-        except:
+        except Exception,e:
+            print e
             return
         
     def getAttr(self,shot,attrName):
@@ -128,9 +133,32 @@ class ShotManager():
                  df[x]=df[x].astype(bool)         
          #df.convert_objects()
          df.to_hdf(self.store,'shotDB',format='table',nan_rep='nan',data_columns=True)
-               
 
+    def addShot(self,shot):
+        listAttr=self.wrapper.getAttrList(detail='all')
+        headers=listAttr['Name'].tolist()
         
-        
+        paths=self.wrapper.getPath(headers,shot)
+        attr=[h5.listAttrs(shot,paths)]
+        df=pd.DataFrame(attr,index=[shot],columns=headers)
+
+        for x in listAttr.Name.values:
+             attr=listAttr.Processing.values[listAttr.Name.values==x][0]
+             if attr=='datetime':
+                 df[x]=pd.to_datetime(df[x])               
+             if attr=='str':
+                 df[x]=df[x].astype('S32')
+             if attr=='float':
+                 df[x]=df[x].astype(float)                 
+             if attr=='bool':
+                 df[x]=df[x].astype(bool)
+        liste=pd.read_hdf(self.store,'shotDB')
+        #df=df.drop(df.columns[[0]], axis=1)
+       # liste=liste.drop(liste.columns[[0]], axis=1)
+        #print liste
+        liste=liste.append(df)
+        liste.to_hdf(self.store,'shotDB',format='table',nan_rep='nan',data_columns=True,append=False)
+
+  
 
 
